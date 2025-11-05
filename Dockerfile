@@ -1,14 +1,18 @@
-ARG IMAGE_VARIANT=slim-buster
 ARG OPENJDK_VERSION=8
-ARG PYTHON_VERSION=3.9.8
 
-FROM python:${PYTHON_VERSION}-${IMAGE_VARIANT} AS py3
-FROM openjdk:${OPENJDK_VERSION}-${IMAGE_VARIANT}
-
-COPY --from=py3 / /
+FROM eclipse-temurin:${OPENJDK_VERSION}-jdk-jammy
 
 ARG PYSPARK_VERSION=3.2.0
-RUN pip --no-cache-dir install pyspark==${PYSPARK_VERSION} pandas pyarrow
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
+RUN pip3 --no-cache-dir install pyspark==${PYSPARK_VERSION} pandas pyarrow
 
 
 COPY main.py /app/main.py
