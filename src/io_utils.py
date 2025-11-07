@@ -1,4 +1,4 @@
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col
 from pyspark.sql.types import (
     DoubleType,
@@ -9,7 +9,7 @@ from pyspark.sql.types import (
 )
 
 
-def get_weather_schema():
+def get_weather_schema() -> StructType:
     return StructType(
         [
             StructField("empty", StringType(), True),
@@ -37,7 +37,7 @@ def get_weather_schema():
     )
 
 
-def load_weather_data(spark: SparkSession, data_path: str):
+def load_weather_data(spark: SparkSession, data_path: str) -> DataFrame:
     """
     Зчитує погодні дані з файлів CSV згідно з визначеною схемою.
     """

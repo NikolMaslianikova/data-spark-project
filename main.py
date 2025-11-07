@@ -2,6 +2,7 @@ import pandas as pd
 from pyspark.sql import SparkSession
 
 from src.io_utils import load_weather_data
+from src.models.classification_anastasiia import run_all_classifications
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName("WeatherInDocker").getOrCreate()
@@ -35,5 +36,7 @@ if __name__ == "__main__":
     print("-" * 120)
 
     print("Завантаження даних успішно завершено.")
+
+    run_all_classifications(df)
 
     spark.stop()
