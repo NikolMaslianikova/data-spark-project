@@ -1,6 +1,7 @@
-from pyspark.sql import SparkSession
-from src.io_utils import load_weather_data
 import pandas as pd
+from pyspark.sql import SparkSession
+
+from src.io_utils import load_weather_data
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName("WeatherInDocker").getOrCreate()
