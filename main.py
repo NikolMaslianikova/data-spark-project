@@ -6,13 +6,14 @@ from src.io_utils import load_weather_data
 if __name__ == "__main__":
     spark = SparkSession.builder.appName("WeatherInDocker").getOrCreate()
 
-    print("\n=== ЕТАП ВИДОБУВАННЯ ДАНИХ ===\n")
+    print()
+    print("=== ЕТАП ВИДОБУВАННЯ ДАНИХ ===")
 
     df = load_weather_data(spark, "/app/data/*.csv")
 
     print("ЗАГАЛЬНА ІНФОРМАЦІЯ")
     print(f"Кількість рядків: {df.count():,}")
-    print(f"Кількість колонок: {len(df.columns)}\n")
+    print(f"Кількість колонок: {len(df.columns)}")
 
     print("СПИСОК УСІХ КОЛОНОК:")
     for i, c in enumerate(df.columns, start=1):
@@ -22,7 +23,7 @@ if __name__ == "__main__":
     print("СХЕМА DataFrame:")
     df.printSchema()
 
-    print("\nПЕРШІ 5 РЯДКІВ ДАНИХ:\n")
+    print("ПЕРШІ 5 РЯДКІВ ДАНИХ:")
     df_safe = df.withColumn("date", df["date"].cast("string"))
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", None)
@@ -33,6 +34,6 @@ if __name__ == "__main__":
     print(pandas_df.to_string(index=False))
     print("-" * 120)
 
-    print("\nЗавантаження даних успішно завершено.\n")
+    print("Завантаження даних успішно завершено.")
 
     spark.stop()
