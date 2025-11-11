@@ -1,14 +1,24 @@
+import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DoubleType
+
 from src.io_utils import load_weather_data
-import pandas as pd
+from src.models.classification_anastasiia import (
+    BusinessAnalytics,
+    run_all_classifications,
+)
 
 if __name__ == "__main__":
     spark = SparkSession.builder.appName("WeatherInDocker").getOrCreate()
 
-    print("\n=== ЕТАП ВИДОБУВАННЯ ДАНИХ ===\n")
+    print()
+    print("=== ЕТАП ВИДОБУВАННЯ ДАНИХ ===")
 
     df = load_weather_data(spark, "./data/archive/w_d_1/*.csv")
+
+    first_col = df.columns[0]
+    if first_col in ("", "empty"):
+        df = df.drop(first_col)
 
     print("ЗАГАЛЬНА ІНФОРМАЦІЯ")
     print(f"Кількість рядків: {df.count():,}")
@@ -22,7 +32,7 @@ if __name__ == "__main__":
     print("СХЕМА DataFrame:")
     df.printSchema()
 
-    print("\nПЕРШІ 5 РЯДКІВ ДАНИХ:\n")
+    print("ПЕРШІ 5 РЯДКІВ ДАНИХ:")
     df_safe = df.withColumn("date", df["date"].cast("string"))
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", None)
@@ -85,5 +95,8 @@ if __name__ == "__main__":
         print("У наборі даних немає числових стовпців для аналізу.")
 
     print("\nЗавантаження та аналіз даних успішно завершено.\n")
+
+    BusinessAnalytics(df).run_all()
+    run_all_classifications(df)
 
     spark.stop()
