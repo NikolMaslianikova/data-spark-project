@@ -6,3 +6,5 @@ venv/
 *.zip
 *.log
 .DS_Store
+w_d_1/
+.idea/

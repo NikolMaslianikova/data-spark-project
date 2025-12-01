@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, input_file_name, regexp_extract
 from pyspark.sql.types import (
     StructType, StructField, StringType, DoubleType, TimestampType
 )
@@ -31,11 +31,27 @@ def get_weather_schema():
     ])
 
 
-def load_weather_data(spark: SparkSession, data_path: str):
-    """Зчитує погодні дані з файлів CSV згідно з визначеною схемою."""
+def load_weather_data(spark: SparkSession, data_path: str, extract_city=True):
+    """
+    Зчитує погодні дані з файлів CSV згідно з визначеною схемою.
+    
+    Args:
+        spark: SparkSession
+        data_path: Шлях до CSV файлів
+        extract_city: Чи витягувати назву міста з імені файлу (за замовчуванням True)
+    """
     schema = get_weather_schema()
     df = spark.read.csv(data_path, header=True, schema=schema)
 
     df = df.withColumn("date", col("date").cast("timestamp"))
-
+    
+    # Витягуємо назву міста з імені файлу
+    if extract_city:
+        df = df.withColumn("input_file", input_file_name())
+        df = df.withColumn(
+            "city",
+            regexp_extract(col("input_file"), r"([^/]+)\.csv$", 1)
+        )
+        df = df.drop("input_file")
+    
     return df
