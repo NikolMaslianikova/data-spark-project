@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import List
 
 from pyspark.ml.classification import LogisticRegression, LogisticRegressionModel
@@ -36,6 +37,45 @@ def run_all_classifications(df: DataFrame) -> None:
     if len(labels) < 2:
         if os.path.isdir(MODEL_DIR) and os.listdir(MODEL_DIR):
             print("У підвибірці один клас — використовую збережену модель.")
+            try:
+                model = LogisticRegressionModel.load(MODEL_DIR)
+                preds = model.transform(data)
+                me = MulticlassClassificationEvaluator(
+                    labelCol="label", predictionCol="prediction"
+                )
+                acc = me.setMetricName("accuracy").evaluate(preds)
+                f1 = me.setMetricName("f1").evaluate(preds)
+                prec = me.setMetricName("weightedPrecision").evaluate(preds)
+                rec = me.setMetricName("weightedRecall").evaluate(preds)
+                be = BinaryClassificationEvaluator(
+                    labelCol="label", rawPredictionCol="rawPrediction"
+                )
+                auc_roc = be.setMetricName("areaUnderROC").evaluate(preds)
+                auc_pr = be.setMetricName("areaUnderPR").evaluate(preds)
+                print(
+                    f"Dry days (Chennai) → Acc: {acc:.3f} | F1: {f1:.3f} | P: {prec:.3f} | R: {rec:.3f}"
+                )
+                print(f"AUC-ROC: {auc_roc:.3f} | AUC-PR: {auc_pr:.3f}")
+                cm = (
+                    preds.groupBy("label", "prediction")
+                    .count()
+                    .orderBy("label", "prediction")
+                )
+                print("Confusion matrix (label, prediction, count):")
+                cm.show(truncate=False)
+            except Exception as e:
+                print(
+                    f"[WARN] Не вдалося завантажити збережену модель ({MODEL_DIR}). Причина: {type(e).__name__}. "
+                    "Оскільки дані містять лише один клас, тренування неможливе — пропускаю ML-блок."
+                )
+        else:
+            print(
+                "У підвибірці один клас і немає збереженої моделі — пропускаю ML-блок."
+            )
+        return
+    if os.path.isdir(MODEL_DIR) and os.listdir(MODEL_DIR):
+        print(f"Завантажую модель з {MODEL_DIR} ...")
+        try:
             model = LogisticRegressionModel.load(MODEL_DIR)
             preds = model.transform(data)
             me = MulticlassClassificationEvaluator(
@@ -54,47 +94,26 @@ def run_all_classifications(df: DataFrame) -> None:
                 f"Dry days (Chennai) → Acc: {acc:.3f} | F1: {f1:.3f} | P: {prec:.3f} | R: {rec:.3f}"
             )
             print(f"AUC-ROC: {auc_roc:.3f} | AUC-PR: {auc_pr:.3f}")
-            cm = (
-                preds.groupBy("label", "prediction")
-                .count()
-                .orderBy("label", "prediction")
-            )
+            cm = preds.groupBy("label", "prediction").count().orderBy("label", "prediction")
             print("Confusion matrix (label, prediction, count):")
             cm.show(truncate=False)
-        else:
+            return
+        except Exception as e:
             print(
-                "У підвибірці один клас і немає збереженої моделі — пропускаю ML-блок."
+                f"[WARN] Не вдалося завантажити модель з {MODEL_DIR}: {type(e).__name__}. Буде виконано перенавчання."
             )
-        return
-    if os.path.isdir(MODEL_DIR) and os.listdir(MODEL_DIR):
-        print(f"Завантажую модель з {MODEL_DIR} ...")
-        model = LogisticRegressionModel.load(MODEL_DIR)
-        preds = model.transform(data)
-        me = MulticlassClassificationEvaluator(
-            labelCol="label", predictionCol="prediction"
-        )
-        acc = me.setMetricName("accuracy").evaluate(preds)
-        f1 = me.setMetricName("f1").evaluate(preds)
-        prec = me.setMetricName("weightedPrecision").evaluate(preds)
-        rec = me.setMetricName("weightedRecall").evaluate(preds)
-        be = BinaryClassificationEvaluator(
-            labelCol="label", rawPredictionCol="rawPrediction"
-        )
-        auc_roc = be.setMetricName("areaUnderROC").evaluate(preds)
-        auc_pr = be.setMetricName("areaUnderPR").evaluate(preds)
-        print(
-            f"Dry days (Chennai) → Acc: {acc:.3f} | F1: {f1:.3f} | P: {prec:.3f} | R: {rec:.3f}"
-        )
-        print(f"AUC-ROC: {auc_roc:.3f} | AUC-PR: {auc_pr:.3f}")
-        cm = preds.groupBy("label", "prediction").count().orderBy("label", "prediction")
-        print("Confusion matrix (label, prediction, count):")
-        cm.show(truncate=False)
-        return
+            # Якщо артефакт пошкоджено — видаляємо теку, щоб зберегти свіжу модель без конфліктів
+            try:
+                shutil.rmtree(MODEL_DIR, ignore_errors=True)
+            except Exception:
+                pass
+            # Перейдемо до тренування як у гілці нижче
     train, test = data.randomSplit([0.8, 0.2], seed=42)
 
     model: LogisticRegressionModel = LogisticRegression(
         featuresCol="features", labelCol="label"
     ).fit(train)
+    # Зберігаємо свіжу модель (папка може бути щойно видалена або порожня)
     model.write().overwrite().save(MODEL_DIR)
     preds = model.transform(test)
     me = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction")

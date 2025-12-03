@@ -1,0 +1,2 @@
+docker build -t spark-weather .
+docker run --rm -v "D:\dataset\w_d_1:/app/data/archive/w_d_1:ro" -v "G:\lviv\data-spark-project\out:/app/results" -v "G:\lviv\data-spark-project\artifacts:/app/artifacts" spark-weather
