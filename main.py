@@ -3,9 +3,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import DoubleType
 
 from src.io_utils import load_weather_data
+from src.models.classification_nine import run_three_questions_three_models
 from src.models.classification_anastasiia import (
     BusinessAnalytics,
-    run_all_classifications,
 )
 
 if __name__ == "__main__":
@@ -97,6 +97,6 @@ if __name__ == "__main__":
     print("\nЗавантаження та аналіз даних успішно завершено.\n")
 
     BusinessAnalytics(df).run_all()
-    run_all_classifications(df)
+    run_three_questions_three_models(df)
 
     spark.stop()
