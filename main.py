@@ -15,7 +15,6 @@ if __name__ == "__main__":
     print("=== ЕТАП ВИДОБУВАННЯ ДАНИХ ===")
 
     df = load_weather_data(spark, "./data/archive/w_d_1/*.csv")
-    df = df.limit(500)
 
     first_col = df.columns[0]
     if first_col in ("", "empty"):
