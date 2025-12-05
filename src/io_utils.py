@@ -37,11 +37,12 @@ def load_weather_data(spark: SparkSession, data_path: str, extract_city=True):
     
     Args:
         spark: SparkSession
-        data_path: Шлях до CSV файлів
+        data_path: Шлях до CSV файлів (може бути glob pattern, наприклад "/app/data/*.csv")
         extract_city: Чи витягувати назву міста з імені файлу (за замовчуванням True)
     """
     schema = get_weather_schema()
-    df = spark.read.csv(data_path, header=True, schema=schema)
+    # Використовуємо PERMISSIVE mode для обробки помилок у даних
+    df = spark.read.csv(data_path, header=True, schema=schema, mode="PERMISSIVE")
 
     df = df.withColumn("date", col("date").cast("timestamp"))
     
