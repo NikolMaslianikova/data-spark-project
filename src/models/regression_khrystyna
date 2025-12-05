@@ -1,0 +1,304 @@
+
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import functions as F
+from pyspark.sql.types import NumericType  
+
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import (
+    LinearRegression,
+    RandomForestRegressor,
+    DecisionTreeRegressor,
+)
+from pyspark.ml.evaluation import RegressionEvaluator
+import os
+
+
+BASE_FEATURES = [
+    "temperature_2m",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "apparent_temperature",
+    "precipitation",
+    "rain",
+    "snowfall",
+    "snow_depth",
+    "pressure_msl",
+    "surface_pressure",
+    "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+    "wind_speed_10m",
+    "wind_speed_100m",
+    "wind_direction_10m",
+    "wind_direction_100m",
+    "wind_gusts_10m",
+    "month",
+    "hour",
+]
+
+
+# =====================================================================
+# 1. ЗАВАНТАЖЕННЯ ДАНИХ 
+# =====================================================================
+def load_weather_data_50_files(spark: SparkSession) -> DataFrame:
+
+    data_dir = r"C:\Users\hrist\pythonProjects\BigData\data"
+
+    all_csv = sorted(
+        f for f in os.listdir(data_dir) if f.lower().endswith(".csv")
+    )
+    cities_files = all_csv[:50]  
+
+    for name in cities_files:
+        print("  ", os.path.join(data_dir, name))
+
+    dfs = []
+    for name in cities_files:
+        path = os.path.join(data_dir, name)
+        city_name = os.path.splitext(name)[0]  # без .csv
+
+        df_city = (
+            spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .csv(path)
+        )
+
+        # викидаємо технічну колонку-індекс
+        if "_c0" in df_city.columns:
+            df_city = df_city.drop("_c0")
+
+        # додаємо назву міста
+        df_city = df_city.withColumn("city", F.lit(city_name))
+
+        # чистимо від NA по ключових колонках
+        df_city = df_city.dropna(subset=["date", "temperature_2m"])
+
+        dfs.append(df_city)
+
+    # об’єднуємо всі міста
+    df = dfs[0]
+    for d in dfs[1:]:
+        df = df.unionByName(d, allowMissingColumns=True)
+
+    print("\nСхема вхідних даних (для регресії):")
+    df.printSchema()
+
+    return df
+
+
+# =====================================================================
+# 2. ОДНА РЕГРЕСІЙНА ЗАДАЧА (ОДИН label_col)
+# =====================================================================
+def run_regression_for_label(df: DataFrame, label_col: str):
+
+    print("\n" + "=" * 80)
+    print(f"РЕГРЕСІЯ ДЛЯ: {label_col}")
+    print("=" * 80)
+
+    # Додаємо month, hour
+    df_feat = (
+        df
+        .withColumn("month", F.month("date"))
+        .withColumn("hour", F.hour("date"))
+    )
+
+    # Вибираємо фічі: беремо тільки ті, що реально є у фреймі
+    feature_cols = [
+        c for c in BASE_FEATURES
+        if c != label_col and c in df_feat.columns
+    ]
+
+    # залишаємо тільки числові фічі (щоб відсіяти snow_depth, якщо він string)
+    feature_cols = [
+        c for c in feature_cols
+        if isinstance(df_feat.schema[c].dataType, NumericType)
+    ]
+
+    print(f"Фічі для {label_col}: {feature_cols}")
+
+    # беремо city (якщо є), date, таргет та фічі
+    cols_for_model = ["date", label_col] + feature_cols
+    if "city" in df_feat.columns:
+        cols_for_model = ["city"] + cols_for_model
+
+    df_model = df_feat.select(*cols_for_model).na.drop()
+
+    # обмеження кількості рядків
+    MAX_ROWS_FOR_ML = 100_000
+    df_model = df_model.limit(MAX_ROWS_FOR_ML)
+
+    assembler = VectorAssembler(
+        inputCols=feature_cols,
+        outputCol="features",
+        handleInvalid="skip",
+    )
+
+    df_model = assembler.transform(df_model).withColumn("label", F.col(label_col))
+
+    train, test = df_model.randomSplit([0.8, 0.2], seed=42)
+
+    regressors = [
+        (
+            "LinearRegression",
+            LinearRegression(
+                labelCol="label",
+                featuresCol="features",
+                maxIter=30,
+                regParam=0.1,
+            ),
+        ),
+        (
+            "RandomForestRegressor",
+            RandomForestRegressor(
+                labelCol="label",
+                featuresCol="features",
+                numTrees=20,
+                maxDepth=8,
+                maxBins=32,
+                subsamplingRate=0.7,
+                featureSubsetStrategy="sqrt",
+                seed=42,
+            ),
+        ),
+        (
+            "DecisionTreeRegressor",
+            DecisionTreeRegressor(
+                labelCol="label",
+                featuresCol="features",
+                maxDepth=8,
+            ),
+        ),
+    ]
+
+    evaluator_rmse = RegressionEvaluator(
+        labelCol="label",
+        predictionCol="prediction",
+        metricName="rmse",
+    )
+    evaluator_r2 = RegressionEvaluator(
+        labelCol="label",
+        predictionCol="prediction",
+        metricName="r2",
+    )
+
+    best_name = None
+    best_model = None
+    best_rmse = float("inf")
+    metrics = []
+
+    for name, reg in regressors:
+        print("\n" + "-" * 80)
+        print(f"Модель регресії: {name}")
+        print("-" * 80)
+
+        model = reg.fit(train)
+        preds = model.transform(test)
+
+        # різниця між прогнозом і реальним (модуль)
+        preds = preds.withColumn(
+            "diff",
+            F.abs(F.col("prediction") - F.col(label_col))
+        )
+
+        rmse = evaluator_rmse.evaluate(preds)
+        r2 = evaluator_r2.evaluate(preds)
+
+        print("Приклад прогнозів (на тесті):")
+        cols_to_show = []
+        if "city" in preds.columns:
+            cols_to_show.append("city")
+        cols_to_show += ["date", label_col, "prediction", "diff"]
+
+        preds.select(*cols_to_show).show(10)
+
+        print(f"{name} -> RMSE: {rmse:.4f}, R²: {r2:.4f}")
+
+        metrics.append((name, rmse, r2))
+
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_name = name
+            best_model = model
+
+    print("\n=== Порівняння моделей для", label_col, "===")
+    for name, rmse, r2 in metrics:
+        print(f"{name:24s} RMSE={rmse:.4f}, R²={r2:.4f}")
+    print(f">>> Найкраща модель для {label_col}: {best_name} (RMSE={best_rmse:.4f})")
+
+    # прогнози найкращої моделі НА ВСЬОМУ df_model
+    preds_full = best_model.transform(df_model)
+
+    # мінімально потрібне + перейменований prediction
+    select_cols = []
+    if "city" in preds_full.columns:
+        select_cols.append("city")
+    select_cols += [
+        "date",
+        label_col,
+        F.col("prediction").alias(f"pred_{label_col}"),
+    ]
+
+    preds_short = preds_full.select(*select_cols)
+
+    return best_name, best_model, preds_short, metrics
+
+
+# =====================================================================
+# 3. MAIN: запускаємо регресію
+# =====================================================================
+def main():
+    spark = (
+        SparkSession.builder
+        .appName("IndianWeather-Regression-Cities")
+        .master("local[*]")
+        .getOrCreate()
+    )
+
+    spark.sparkContext.setLogLevel("WARN")
+
+    df_raw = load_weather_data_50_files(spark)
+
+    labels = [
+        "apparent_temperature",
+    ]
+
+    preds_list = []
+    all_metrics = {}
+
+    for label in labels:
+        best_name, best_model, preds_short, metrics = run_regression_for_label(df_raw, label)
+        preds_list.append(preds_short)
+        all_metrics[label] = {
+            "best_model": best_name,
+            "metrics": metrics,
+        }
+
+    df_with_preds = preds_list[0]
+    join_keys = ["date"]
+    if "city" in df_with_preds.columns:
+        join_keys = ["city", "date"]
+
+    for other in preds_list[1:]:
+        df_with_preds = df_with_preds.join(
+            other,
+            on=join_keys,
+            how="inner",
+        )
+
+    print("\n=== Приклад рядків з реальними значеннями та прогнозами ===")
+    df_with_preds.show(20, truncate=False)
+
+    print("\n=== Підсумок по моделях ===")
+    for label, info in all_metrics.items():
+        print(f"\nТаргет: {label}")
+        print(f"  Найкраща модель: {info['best_model']}")
+        for name, rmse, r2 in info["metrics"]:
+            print(f"    {name:24s} RMSE={rmse:.4f}, R²={r2:.4f}")
+
+    spark.stop()
+
+
+if __name__ == "__main__":
+    main()
