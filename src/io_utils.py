@@ -42,6 +42,7 @@ def load_weather_data(spark: SparkSession, data_path: str) -> DataFrame:
     Зчитує погодні дані з файлів CSV згідно з визначеною схемою.
     """
     schema = get_weather_schema()
-    df = spark.read.csv(data_path, header=True, schema=schema)
+    # Використовуємо PERMISSIVE mode для обробки помилок у даних
+    df = spark.read.csv(data_path, header=True, schema=schema, mode="PERMISSIVE")
 
     return df.withColumn("date", col("date").cast("timestamp"))
